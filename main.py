@@ -53,8 +53,8 @@ def get_categorical_variables_and_colormaps(ad: anndata.AnnData,
                                             color_palette):
     categorical_vars = {}
     for k in anndat.obs:
-        if ad[k].dtype.name == 'category':
-            factors = ad[k].unique().to_list()
+        if ad.obs[k].dtype.name == 'category':
+            factors = ad.obs[k].unique().to_list()
             categorical_vars[k] = CategoricalColorMapper(
                 factors=factors,
                 palette=color_palette[:len(factors)])
@@ -78,7 +78,8 @@ zeileis_28 = [
 # load data
 anndat = load_h5ad()
 umap = anndat.obsm['X_umap']
-
+color_palette = cc.b_glasbey_bw_minc_20
+category_to_colormap = get_categorical_variables_and_colormaps(anndat, color_palette)
 # set up widgets
 # stats = PreText(text='', width=500)
 symbol = AutocompleteInput(completions=anndat.var_names.tolist(),
@@ -86,33 +87,39 @@ symbol = AutocompleteInput(completions=anndat.var_names.tolist(),
 
 
 select = Select(title="Legend:", value="phase",
-                options=anndat.obs_keys())
+                options=list(category_to_colormap.keys()))
 # message box
 message = Div(text="""Input Gene Name:\n Legend Option: """, width=200, height=100)
 
 ## setup data
 dd = select.value
 umis = get_umi(anndat, symbol.value)
-source = ColumnDataSource(data=dict(
+
+source_dict = dict(
                                     color=[0] * umap.shape[0],
                                     umis=[0] * umap.shape[0],
                                     UMAP1=umap[:, 0].tolist(),
-                                    UMAP2=umap[:, 1].tolist(), ))
+                                    UMAP2=umap[:, 1].tolist(), )
+
+for k in category_to_colormap:
+    source_dict[k] = anndat.obs[k].to_list()
+
+source = ColumnDataSource(data=source_dict)
+
 # PC3=pca[:,2].tolist(),))
 source_vln = ColumnDataSource(data=dict(xs=[], ys=[], xj=[], yj=[], color=[]))
 ## setup figures
 tools = 'reset,pan,wheel_zoom,box_select,lasso_select,save'
 # color_palette= godsnot_102
-color_palette = cc.b_glasbey_bw_minc_20
 
-category_to_colormap = get_categorical_variables_and_colormaps(anndat, color_palette)
+
+
 
 ###
 catogories = sorted(anndat.obs[dd].unique().tolist())
 palette = color_palette[:len(catogories)]
 low, high = 0, 1
 ## transforms
-fcmap = factor_cmap('color', palette=palette, factors=[str(c) for c in catogories])
 mapper = linear_cmap(field_name='umis', palette="Viridis256",
                      low=low, high=high)
 color_bar = ColorBar(color_mapper=mapper['transform'],
@@ -122,17 +129,17 @@ color_bar = ColorBar(color_mapper=mapper['transform'],
 
 categorical_legend = Legend(items=[], location='top_right')
 
-u1 = figure(width=500, height=500, title="UMAP", tools=tools)
+u1 = figure(width=1000, height=500, title="UMAP", tools=tools)
 u1.toolbar.logo = None
 u1.xaxis.axis_label = "UMAP1"
 u1.yaxis.axis_label = "UMAP2"
 u1.select(BoxSelectTool).select_every_mousemove = False
 u1.select(LassoSelectTool).select_every_mousemove = False
-u1.add_layout(categorical_legend)
+u1.add_layout(categorical_legend, "right")
 
 
 
-u2 = figure(width=550, height=500, tools=tools)
+u2 = figure(width=1000, height=500, tools=tools, x_range=u1.x_range, y_range=u1.y_range)
 u2.toolbar.logo = None
 u2.xaxis.axis_label = "UMAP1"
 u2.yaxis.axis_label = "UMAP2"
@@ -144,7 +151,8 @@ u2.select(LassoSelectTool).select_every_mousemove = False
 u1_scatter = u1.circle('UMAP1', 'UMAP2',
           size=3,
           source=source,
-          color=fcmap,
+          line_color=None,
+          fill_color={'field': dd, 'transform': category_to_colormap[dd]},
           selection_color="orange",
           alpha=0.6,
           nonselection_alpha=0.1,
@@ -195,7 +203,7 @@ def update_legend():
     for idx, cat in enumerate(sorted(unique_categories)):
         categorical_legend.items.append(
             LegendItem(label=str(cat),
-                       renderers=[u2_scatter],
+                       renderers=[u1_scatter],
                        index=idx)
         )
 
@@ -279,17 +287,12 @@ def factor_change():
     # select gene expression value
     umis = get_umi(anndat, gene)
     # update factor color 
-    clusters = anndat.obs[dd]
-    cats = sorted(clusters.unique().tolist())
-    fcmap['transform'].factors = [ str(c) for c in cats]
-    fcmap['transform'].palette = color_palette[:len(cats)]
 
-    u2_scatter.glyph.fill_color = dd
-    u2_scatter.glyph.line_color = dd
+    u1_scatter.glyph.fill_color = {'field': dd, 'transform': category_to_colormap[dd]}
+    update_legend()
 
-    source.data.update(color=clusters.astype(str).tolist())
     try:
-        volin_change(gene, clusters, umis, bins=1000)
+        volin_change(gene, anndat.obs[dd], umis, bins=1000)
     except Exception as e:
         logger.exception(e)
 
@@ -336,8 +339,7 @@ select.on_change('value', lambda attr, old, new: factor_change())
 # set up layout
 sb = column(symbol, select, message)
 
-series_u = row(u1, u2, )
-layout = column(series_u, volin, sb)
+layout = row(column(u1, u2, volin), sb)
 
 # initialize
 # update()
