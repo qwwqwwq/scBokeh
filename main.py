@@ -1,50 +1,36 @@
-####
-# Visualize Single Cell data
-# @author: Zhuoqing Fang
-# @email: maxzqfang@stanford.edu
-# @version: 0.1
-# @time: 2019-12-21
-#####
 import logging
 from functools import lru_cache
 from os.path import dirname, join
 
 import anndata
+import colorcet as cc
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import colorcet as cc
-from scipy.stats.kde import gaussian_kde
-from bokeh.io import curdoc, show
+from bokeh.io import curdoc
 from bokeh.layouts import row, column
-from bokeh.models import ColumnDataSource, ColorBar, LinearColorMapper
-from bokeh.models import FixedTicker, PrintfTickFormatter
-from bokeh.models.glyphs import Patches
-from bokeh.models.widgets import Select, TextInput, Dropdown, AutocompleteInput, Div
-from bokeh.plotting import figure
-from bokeh.models import ColumnDataSource, Select, Legend, LegendItem, CategoricalColorMapper
-
-from bokeh.palettes import Category10, Spectral6
-from bokeh.transform import factor_cmap, factor_mark, linear_cmap, jitter
-from bokeh.themes import built_in_themes
 from bokeh.models import BoxSelectTool, LassoSelectTool
+from bokeh.models import CategoricalColorMapper
+from bokeh.models import ColorBar
 from bokeh.models import ColumnDataSource, Select, Legend, LegendItem
+from bokeh.models import FixedTicker
+from bokeh.models.widgets import AutocompleteInput, Div
+from bokeh.plotting import figure
+from bokeh.transform import linear_cmap
+from scipy.stats.kde import gaussian_kde
 
 DATA_DIR = dirname(__file__)
 
 logger = logging.getLogger(__file__)
-
-logging.basicConfig()
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler())
 
 @lru_cache()
 def load_h5ad():
     fname = join(DATA_DIR, "pbmc68k_reduced.h5ad")
     return sc.read_h5ad(fname)
 
-
-
 def get_umi(anndat, features):
-    # umi = anndat[:, features].X.tolist()
     umi = anndat.obs_vector(features)
     return umi
 
@@ -62,18 +48,6 @@ def get_categorical_variables_and_colormaps(ad: anndata.AnnData,
     return categorical_vars
 
 
-
-## Catogorical colors
-
-# https://graphicdesign.stackexchange.com/questions/3682/where-can-i-find-a-large-palette-set-of-contrasting-colors-for-coloring-many-d
-# update 1
-# orig reference http://epub.wu.ac.at/1692/1/document.pdf
-zeileis_28 = [
-    "#023fa5", "#7d87b9", "#bec1d4", "#d6bcc0", "#bb7784", "#8e063b", "#4a6fe3",
-    "#8595e1", "#b5bbe3", "#e6afb9", "#e07b91", "#d33f6a", "#11c638", "#8dd593",
-    "#c6dec7", "#ead3c6", "#f0b98d", "#ef9708", "#0fcfc0", "#9cded6", "#d5eae7",
-    "#f3e1eb", "#f6c4e1", "#f79cd4",
-    '#7f7f7f', "#c7c7c7", "#1CE6FF", "#336600", ]  # these last ones were added
 
 # load data
 anndat = load_h5ad()
