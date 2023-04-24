@@ -25,10 +25,12 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler())
 
+
 @lru_cache()
 def load_h5ad():
     fname = join(DATA_DIR, "pbmc68k_reduced.h5ad")
     return sc.read_h5ad(fname)
+
 
 def get_umi(anndat, features):
     umi = anndat.obs_vector(features)
@@ -48,8 +50,129 @@ def get_categorical_variables_and_colormaps(ad: anndata.AnnData,
     return categorical_vars
 
 
+class SingleCellViz:
+    def __init__(self, ad: anndata.AnnData,
+                 color_palette=cc.b_glasbey_bw_minc_20,
+                 obsm_keys=('X_umap', 'X_pca'),
+                 ):
+        self.ad = ad
+        self.n_cells = ad.shape[0]
+        self.n_genes = ad.shape[1]
+        self.color_palette = color_palette
+        self.gene_symbol_input = AutocompleteInput(
+            completions=anndat.var_names.tolist(),
+            title="Enter Gene Name (e.g. HES4 ):", value="HES4")
 
-# load data
+        self.category_to_colormap = get_categorical_variables_and_colormaps(
+            self.ad,
+            self.color_palette)
+
+        if len(self.category_to_colormap) == 0:
+            self.categorical_variable_select = Select(
+                title="Legend:",
+                value=list(self.category_to_colormap.keys())[0],
+                options=list(self.category_to_colormap.keys()))
+        else:
+            self.categorical_variable_select = None
+
+        data_source_dict = {
+            "expression": [0] * self.n_cells,
+        }
+
+        for attr in obsm_keys:
+            data_source_dict[attr + "_1"] = self.ad.obsm[attr][:, 0].tolist()
+            data_source_dict[attr + "_1"] = self.ad.obsm[attr][:, 1].tolist()
+
+        for k in self.category_to_colormap:
+            data_source_dict[k] = anndat.obs[k].to_list()
+
+        self.data_source = ColumnDataSource(
+            data_source_dict
+        )
+
+        self.obsm_figures = {}
+
+        self.mapper = linear_cmap(
+            field_name='expression',
+            palette="Viridis256",
+            low=low,
+            high=high)
+
+        self.color_bar = ColorBar(
+            color_mapper=self.mapper['transform'],
+            width=10,
+            major_label_text_font_size="10pt",
+            location=(0, 0))
+
+        self.categorical_legend = Legend(items=[], location='top_right')
+
+    def create_categorical_obsm_figure(self, attr):
+        fig = figure(title="UMAP", tools=tools)
+        fig.toolbar.logo = None
+        fig.xaxis.axis_label = f"{attr}1"
+        fig.yaxis.axis_label = f"{attr}2"
+        fig.select(BoxSelectTool).select_every_mousemove = False
+        fig.select(LassoSelectTool).select_every_mousemove = False
+        fig.add_layout(categorical_legend, "right")
+
+        scatter = fig.circle(f"{attr}1", f"{attr}2",
+                             size=3,
+                             source=source,
+                             line_color=None,
+                             fill_color={'field': self.categorical_variable_select.value,
+                                         'transform': self.category_to_colormap[dd]},
+                             selection_color="orange",
+                             alpha=0.6,
+                             nonselection_alpha=0.1,
+                             selection_alpha=0.4)
+
+        return fig, scatter
+
+    def create_scalar_obsm_figure(self, attr):
+        fig = figure(title="UMAP", tools=tools)
+        fig.toolbar.logo = None
+        fig.xaxis.axis_label = f"{attr}1"
+        fig.yaxis.axis_label = f"{attr}2"
+        fig.select(BoxSelectTool).select_every_mousemove = False
+        fig.select(LassoSelectTool).select_every_mousemove = False
+        fig.add_layout(categorical_legend, "right")
+
+        scatter = u2.scatter(f"{attr}1", f"{attr}2",
+                             size=3,
+                             source=source,
+                             fill_color=mapper,
+                             line_color=None,
+                             selection_color="orange",
+                             alpha=0.6,
+                             nonselection_alpha=0.1,
+                             selection_alpha=0.4)
+        
+        u2.add_layout(color_bar, 'right')
+        scatter = fig.circle('UMAP1', 'UMAP2',
+                             size=3,
+                             source=source,
+                             line_color=None,
+                             fill_color={'field': self.categorical_variable_select.value,
+                                         'transform': self.category_to_colormap[dd]},
+                             selection_color="orange",
+                             alpha=0.6,
+                             nonselection_alpha=0.1,
+                             selection_alpha=0.4)
+
+        return fig, scatter
+
+    def update_legend(self):
+        self.categorical_legend.items = []
+        attr = self.select.value
+        unique_categories = anndat.obs[attr].unique().to_list()
+        for idx, cat in enumerate(sorted(unique_categories)):
+            self.categorical_legend.items.append(
+                LegendItem(label=str(cat),
+                           renderers=[u1_scatter],
+                           index=idx)
+            )
+
+
 anndat = load_h5ad()
 umap = anndat.obsm['X_umap']
 color_palette = cc.b_glasbey_bw_minc_20
@@ -58,7 +181,6 @@ category_to_colormap = get_categorical_variables_and_colormaps(anndat, color_pal
 # stats = PreText(text='', width=500)
 symbol = AutocompleteInput(completions=anndat.var_names.tolist(),
                            title="Enter Gene Name (e.g. HES4 ):", value="HES4")
-
 
 select = Select(title="Legend:", value="phase",
                 options=list(category_to_colormap.keys()))
@@ -70,10 +192,10 @@ dd = select.value
 umis = get_umi(anndat, symbol.value)
 
 source_dict = dict(
-                                    color=[0] * umap.shape[0],
-                                    umis=[0] * umap.shape[0],
-                                    UMAP1=umap[:, 0].tolist(),
-                                    UMAP2=umap[:, 1].tolist(), )
+    color=[0] * umap.shape[0],
+    umis=[0] * umap.shape[0],
+    UMAP1=umap[:, 0].tolist(),
+    UMAP2=umap[:, 1].tolist(), )
 
 for k in category_to_colormap:
     source_dict[k] = anndat.obs[k].to_list()
@@ -84,10 +206,6 @@ source = ColumnDataSource(data=source_dict)
 source_vln = ColumnDataSource(data=dict(xs=[], ys=[], xj=[], yj=[], color=[]))
 ## setup figures
 tools = 'reset,pan,wheel_zoom,box_select,lasso_select,save'
-# color_palette= godsnot_102
-
-
-
 
 ###
 catogories = sorted(anndat.obs[dd].unique().tolist())
@@ -111,8 +229,6 @@ u1.select(BoxSelectTool).select_every_mousemove = False
 u1.select(LassoSelectTool).select_every_mousemove = False
 u1.add_layout(categorical_legend, "right")
 
-
-
 u2 = figure(width=1000, height=500, tools=tools, x_range=u1.x_range, y_range=u1.y_range)
 u2.toolbar.logo = None
 u2.xaxis.axis_label = "UMAP1"
@@ -123,26 +239,26 @@ u2.select(LassoSelectTool).select_every_mousemove = False
 ########### clustering plots ##################
 ## UMAP
 u1_scatter = u1.circle('UMAP1', 'UMAP2',
-          size=3,
-          source=source,
-          line_color=None,
-          fill_color={'field': dd, 'transform': category_to_colormap[dd]},
-          selection_color="orange",
-          alpha=0.6,
-          nonselection_alpha=0.1,
-          selection_alpha=0.4)
+                       size=3,
+                       source=source,
+                       line_color=None,
+                       fill_color={'field': dd, 'transform': category_to_colormap[dd]},
+                       selection_color="orange",
+                       alpha=0.6,
+                       nonselection_alpha=0.1,
+                       selection_alpha=0.4)
 
 ###### gene expression plots ##################
 # tSNE
 
 # UMAP
 u2_scatter = u2.scatter('UMAP1', 'UMAP2', size=3, source=source,
-           fill_color=mapper,
-           line_color=None,
-           selection_color="orange",
-           alpha=0.6,
-           nonselection_alpha=0.1,
-           selection_alpha=0.4)
+                        fill_color=mapper,
+                        line_color=None,
+                        selection_color="orange",
+                        alpha=0.6,
+                        nonselection_alpha=0.1,
+                        selection_alpha=0.4)
 u2.add_layout(color_bar, 'right')
 #
 
@@ -169,6 +285,7 @@ volin.ygrid.grid_line_color = "#dddddd"
 volin.axis.minor_tick_line_color = None
 volin.axis.major_tick_line_color = None
 volin.axis.axis_line_color = None
+
 
 def update_legend():
     categorical_legend.items = []
@@ -272,7 +389,6 @@ def factor_change():
 
 
 def on_select_change(attr, old, new):
-
     if len(new) == 0:
         factor_change()
         return
@@ -304,6 +420,7 @@ def on_select_change(attr, old, new):
     except Exception as e:
         logger.exception(e)
 
+
 source.selected.on_change("indices", on_select_change)
 
 ### input on change
@@ -313,7 +430,7 @@ select.on_change('value', lambda attr, old, new: factor_change())
 # set up layout
 sb = column(symbol, select, message)
 
-layout = row(column(u1, u2, volin), sb)
+layout = row(column(u1, u2, volin), sb, sizing_mode="stretch_both")
 
 # initialize
 # update()
