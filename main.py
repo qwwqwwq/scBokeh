@@ -29,18 +29,33 @@ class SingleCellViz:
     def __init__(self, ad: anndata.AnnData,
                  color_palette=cc.b_glasbey_bw_minc_20,
                  obsm_keys=('X_umap', 'X_pca'),
+                 tools="pan,wheel_zoom,box_zoom,reset,lasso_select,box_select",
                  ):
+        self.tools = tools
         self.ad = ad
         self.n_cells = ad.shape[0]
         self.n_genes = ad.shape[1]
         self.color_palette = color_palette
+        self.categorical_legend = Legend(items=[], location='top_right')
         self.gene_symbol_input = AutocompleteInput(
             completions=self.ad.var_names.tolist(),
             title="Enter Gene Name (e.g. HES4 ):", value="HES4")
 
+        self.mapper = linear_cmap(
+            field_name='expression',
+            palette="Viridis256",
+            low=0,
+            high=1)
+
+        self.color_bar = ColorBar(
+            color_mapper=self.mapper['transform'],
+            width=10,
+            major_label_text_font_size="10pt",
+            location=(0, 0))
+
         self.category_to_colormap = self.get_categorical_variables_and_colormaps()
 
-        if len(self.category_to_colormap) == 0:
+        if len(self.category_to_colormap) > 0:
             self.categorical_variable_select = Select(
                 title="Legend:",
                 value=list(self.category_to_colormap.keys())[0],
@@ -67,7 +82,6 @@ class SingleCellViz:
 
         self.scalar_scatters = {}
         self.categorical_scatters = {}
-
         for attr in obsm_keys:
             categorical_fig, categorical_scatter = self.create_categorical_obsm_figure(attr)
             scalar_fig, scalar_scatter = self.create_scalar_obsm_figure(attr)
@@ -81,21 +95,7 @@ class SingleCellViz:
 
         self.obsm_figures = {}
 
-        self.mapper = linear_cmap(
-            field_name='expression',
-            palette="Viridis256",
-            low=0,
-            high=1)
 
-        self.color_bar = ColorBar(
-            color_mapper=self.mapper['transform'],
-            width=10,
-            major_label_text_font_size="10pt",
-            location=(0, 0))
-
-        self.categorical_legend = Legend(items=[], location='top_right')
-
-        self.tools = "pan,wheel_zoom,box_zoom,reset,lasso_select,box_select"
 
         self.selected_umis = []
 
@@ -153,6 +153,8 @@ class SingleCellViz:
         fig.select(LassoSelectTool).select_every_mousemove = False
         fig.add_layout(self.categorical_legend, "right")
 
+
+
         scatter = fig.circle(f"{attr}1", f"{attr}2",
                              size=3,
                              source=self.data_source,
@@ -175,18 +177,16 @@ class SingleCellViz:
         fig.select(BoxSelectTool).select_every_mousemove = False
         fig.select(LassoSelectTool).select_every_mousemove = False
 
-        scatter = fig.circle(f"{attr}1", f"{attr}2",
+        scatter = fig.scatter(f"{attr}1", f"{attr}2",
                              size=3,
                              source=self.data_source,
-                             line_color=None,
-                             fill_color={'field': self.categorical_variable_select.value,
-                                         'transform': self.category_to_colormap[attr]},
+                             color=self.mapper,
                              selection_color="orange",
                              alpha=0.6,
                              nonselection_alpha=0.1,
                              selection_alpha=0.4)
 
-        scatter.add_layout(self.color_bar, 'right')
+        fig.add_layout(self.color_bar, 'right')
 
         return fig, scatter
 
@@ -319,6 +319,4 @@ def main():
     curdoc().add_root(viz.layout)
     curdoc().title = "scBokeh"
 
-
-if __name__ == '__main__':
-    main()
+main()
