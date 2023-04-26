@@ -158,7 +158,7 @@ class SingleCellViz:
                               size=5,
                               source=self.data_source,
                               line_color=None,
-                              color={'field': attr,
+                              color={'field': self.categorical_variable_select.value,
                                      'transform': self.category_to_colormap[
                                          self.categorical_variable_select.value]},
                               selection_color="orange",
