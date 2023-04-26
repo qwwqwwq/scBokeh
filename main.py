@@ -157,6 +157,7 @@ class SingleCellViz:
                              source=self.data_source,
                              line_color=None,
                              fill_color=cmap,
+                             legend="legend" if with_legend else None,
                              selection_color="orange",
                              alpha=0.6,
                              nonselection_alpha=0.1,
@@ -223,14 +224,17 @@ class SingleCellViz:
 
     def update_factor(self):
         attr = self.categorical_variable_select.value
-        self.update_legend()
+        self.data_source["legend"] = self.ad.obs[self.categorical_variable_select.value]
+
         cmap = factor_cmap(attr,
                     self.color_palette,
                     sorted(self.ad.obs[self.categorical_variable_select.value].unique().tolist()))
         for _, (_, scatter) in self.categorical_scatters.items():
             scatter.glyph.fill_color = cmap
+
+
         self.update_violin()
-        self.update_legend()
+
 
     def update_gene(self):
         gene_symbol = self.gene_symbol_input.value.strip()
