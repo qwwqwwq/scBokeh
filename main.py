@@ -11,12 +11,14 @@ from bokeh.layouts import row, column, layout, gridplot
 from bokeh.models import BoxSelectTool, LassoSelectTool
 from bokeh.models import CategoricalColorMapper
 from bokeh.models import ColorBar
+from bokeh.core.property.vectorization import Field
 from bokeh.models import ColumnDataSource, Select, Legend, LegendItem
 from bokeh.models import FixedTicker
 from bokeh.models.widgets import AutocompleteInput, Div
 from bokeh.plotting import figure
-from bokeh.transform import linear_cmap, factor_cmap
+from bokeh.transform import linear_cmap
 from scipy.stats.kde import gaussian_kde
+from bokeh.core.properties import field, value
 
 DATA_DIR = dirname(__file__)
 
@@ -149,15 +151,13 @@ class SingleCellViz:
         if with_legend:
             fig.add_layout(self.categorical_legend, "below")
 
-        cmap = factor_cmap(attr,
-                    self.color_palette,
-                    sorted(self.ad.obs[self.categorical_variable_select.value].unique().tolist()))
         scatter = fig.circle(f"{attr}1", f"{attr}2",
                              size=5,
                              source=self.data_source,
                              line_color=None,
-                             fill_color=cmap,
-                             legend="legend" if with_legend else None,
+                             fill_color={'field': self.categorical_variable_select.value,
+                                         'transform': self.category_to_colormap[
+                                             self.categorical_variable_select.value]},
                              selection_color="orange",
                              alpha=0.6,
                              nonselection_alpha=0.1,
@@ -217,24 +217,18 @@ class SingleCellViz:
 
         for idx, cat in enumerate(sorted(unique_categories)):
             self.categorical_legend.items.append(
-                LegendItem(label=str(cat),
+                LegendItem(label=value(cat),
                            renderers=[renderer],
                            index=idx)
             )
 
     def update_factor(self):
         attr = self.categorical_variable_select.value
-        self.data_source["legend"] = self.ad.obs[self.categorical_variable_select.value]
 
-        cmap = factor_cmap(attr,
-                    self.color_palette,
-                    sorted(self.ad.obs[self.categorical_variable_select.value].unique().tolist()))
         for _, (_, scatter) in self.categorical_scatters.items():
-            scatter.glyph.fill_color = cmap
-
-
-        self.update_violin()
-
+            scatter.glyph.fill_color = {'field': attr, 'transform': self.category_to_colormap[attr]}
+        self.update_legend()
+        #self.update_violin()
 
     def update_gene(self):
         gene_symbol = self.gene_symbol_input.value.strip()
