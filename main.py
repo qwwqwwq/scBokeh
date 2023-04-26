@@ -148,16 +148,17 @@ class SingleCellViz:
         fig.yaxis.axis_label = f"{attr}2"
         fig.select(BoxSelectTool).select_every_mousemove = False
         fig.select(LassoSelectTool).select_every_mousemove = False
-        if with_legend:
-            fig.add_layout(self.categorical_legend, "below")
+        #if with_legend:
+        #    fig.add_layout(self.categorical_legend, "below")
 
         scatter = fig.circle(f"{attr}1", f"{attr}2",
                              size=5,
                              source=self.data_source,
                              line_color=None,
-                             fill_color={'field': self.categorical_variable_select.value,
+                             fill_color={'field': "legend",
                                          'transform': self.category_to_colormap[
                                              self.categorical_variable_select.value]},
+                             legend_field="legend",
                              selection_color="orange",
                              alpha=0.6,
                              nonselection_alpha=0.1,
@@ -225,10 +226,12 @@ class SingleCellViz:
     def update_factor(self):
         attr = self.categorical_variable_select.value
 
+        self.data_source["legend"] = self.ad.obs[attr].to_list()
+
         for _, (_, scatter) in self.categorical_scatters.items():
             scatter.glyph.fill_color = {'field': attr, 'transform': self.category_to_colormap[attr]}
         self.update_legend()
-        #self.update_violin()
+        self.update_violin()
 
     def update_gene(self):
         gene_symbol = self.gene_symbol_input.value.strip()
