@@ -82,6 +82,7 @@ class SingleCellViz:
             data_source_dict
         )
 
+        self.fig_with_cat_legend = None
         self.scalar_scatters = {}
         self.categorical_scatters = {}
         for idx, attr in enumerate(obsm_keys):
@@ -142,32 +143,34 @@ class SingleCellViz:
         return self.ad.obs_vector(feature)
 
     def create_categorical_obsm_figure(self, attr, with_legend=False):
-        fig = figure(title="UMAP", tools=self.tools, inner_height=600 if with_legend else 300, aspect_ratio=1 if with_legend else 1.5)
+        fig = figure(title="UMAP", tools=self.tools, inner_height=600 if with_legend else 300,
+                     aspect_ratio=1 if with_legend else 1.5)
         fig.toolbar.logo = None
         fig.xaxis.axis_label = f"{attr}1"
         fig.yaxis.axis_label = f"{attr}2"
         fig.select(BoxSelectTool).select_every_mousemove = False
         fig.select(LassoSelectTool).select_every_mousemove = False
-        #if with_legend:
-        #    fig.add_layout(self.categorical_legend, "below")
+        if with_legend:
+            self.fig_with_cat_legend = fig
+            fig.add_layout(self.categorical_legend, "below")
 
-        scatter = fig.circle(f"{attr}1", f"{attr}2",
-                             size=5,
-                             source=self.data_source,
-                             line_color=None,
-                             fill_color={'field': "legend",
-                                         'transform': self.category_to_colormap[
-                                             self.categorical_variable_select.value]},
-                             legend_field="legend",
-                             selection_color="orange",
-                             alpha=0.6,
-                             nonselection_alpha=0.1,
-                             selection_alpha=0.4)
+        scatter = fig.scatter(f"{attr}1", f"{attr}2",
+                              size=5,
+                              source=self.data_source,
+                              line_color=None,
+                              color={'field': attr,
+                                     'transform': self.category_to_colormap[
+                                         self.categorical_variable_select.value]},
+                              selection_color="orange",
+                              alpha=0.6,
+                              nonselection_alpha=0.1,
+                              selection_alpha=0.4)
 
         return fig, scatter
 
     def create_scalar_obsm_figure(self, attr, with_legend=False):
-        fig = figure(title="UMAP", tools=self.tools, inner_height=600 if with_legend else 300, aspect_ratio=1 if with_legend else 1.5)
+        fig = figure(title="UMAP", tools=self.tools, inner_height=600 if with_legend else 300,
+                     aspect_ratio=1 if with_legend else 1.5)
         fig.toolbar.logo = None
         fig.xaxis.axis_label = f"{attr}1"
         fig.yaxis.axis_label = f"{attr}2"
@@ -226,10 +229,9 @@ class SingleCellViz:
     def update_factor(self):
         attr = self.categorical_variable_select.value
 
-        self.data_source["legend"] = self.ad.obs[attr].to_list()
-
         for _, (_, scatter) in self.categorical_scatters.items():
             scatter.glyph.fill_color = {'field': attr, 'transform': self.category_to_colormap[attr]}
+
         self.update_legend()
         self.update_violin()
 
