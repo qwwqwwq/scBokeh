@@ -90,6 +90,13 @@ class SingleCellViz:
                 attr,
                 with_legend=False)
             scalar_fig, scalar_scatter = self.create_scalar_obsm_figure(attr, with_legend=False)
+            scalar_fig.x_range = categorical_fig.x_range
+            scalar_fig.y_range = categorical_fig.y_range
+            if idx > 0:
+                categorical_fig.x_range = self.categorical_scatters[obsm_keys[0]][0].x_range
+                categorical_fig.y_range = self.categorical_scatters[obsm_keys[0]][0].y_range
+                scalar_fig.x_range = self.categorical_scatters[obsm_keys[0]][0].x_range
+                scalar_fig.y_range = self.categorical_scatters[obsm_keys[0]][0].y_range
 
             self.categorical_scatters[attr] = (categorical_fig, categorical_scatter)
             self.scalar_scatters[attr] = (scalar_fig, scalar_scatter)
