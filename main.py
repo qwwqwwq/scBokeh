@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from bokeh.io import curdoc
-from bokeh.layouts import row, column
+from bokeh.layouts import row, column, layout, gridplot
 from bokeh.models import BoxSelectTool, LassoSelectTool
 from bokeh.models import CategoricalColorMapper
 from bokeh.models import ColorBar
@@ -15,7 +15,7 @@ from bokeh.models import ColumnDataSource, Select, Legend, LegendItem
 from bokeh.models import FixedTicker
 from bokeh.models.widgets import AutocompleteInput, Div
 from bokeh.plotting import figure
-from bokeh.transform import linear_cmap
+from bokeh.transform import linear_cmap, factor_cmap
 from scipy.stats.kde import gaussian_kde
 
 DATA_DIR = dirname(__file__)
@@ -36,7 +36,7 @@ class SingleCellViz:
         self.n_cells = ad.shape[0]
         self.n_genes = ad.shape[1]
         self.color_palette = color_palette
-        self.categorical_legend = Legend(items=[], location='top_right')
+        self.categorical_legend = Legend(items=[], ncols=2, location="bottom_right")
         self.gene_symbol_input = AutocompleteInput(
             completions=self.ad.var_names.tolist(),
             title="Enter Gene Name (e.g. HES4 ):", value="HES4")
@@ -82,9 +82,11 @@ class SingleCellViz:
 
         self.scalar_scatters = {}
         self.categorical_scatters = {}
-        for attr in obsm_keys:
-            categorical_fig, categorical_scatter = self.create_categorical_obsm_figure(attr)
-            scalar_fig, scalar_scatter = self.create_scalar_obsm_figure(attr)
+        for idx, attr in enumerate(obsm_keys):
+            categorical_fig, categorical_scatter = self.create_categorical_obsm_figure(
+                attr,
+                with_legend=idx == len(obsm_keys) - 1)
+            scalar_fig, scalar_scatter = self.create_scalar_obsm_figure(attr, with_legend=idx == len(obsm_keys) - 1)
 
             self.categorical_scatters[attr] = (categorical_fig, categorical_scatter)
             self.scalar_scatters[attr] = (scalar_fig, scalar_scatter)
@@ -94,8 +96,6 @@ class SingleCellViz:
         )
 
         self.obsm_figures = {}
-
-
 
         self.selected_umis = []
 
@@ -126,17 +126,12 @@ class SingleCellViz:
 
         user_input_block = column(self.gene_symbol_input, self.categorical_variable_select)
 
-        graph_column = []
+        scatters = [[self.categorical_scatters[attr][0], self.scalar_scatters[attr][0]] for attr in obsm_keys]
 
-        for attr in obsm_keys:
-            graph_column.append(
-                row(self.categorical_scatters[attr][0], self.scalar_scatters[attr][0], sizing_mode="stretch_both")
-            )
-        graph_column.append(self.violin_figure)
+        scatter_grid = gridplot(scatters)
 
-        graph_layout = column(*graph_column, sizing_mode="stretch_both")
-
-        self.layout = row(graph_layout, user_input_block, sizing_mode="stretch_both")
+        self.layout = layout(
+            children=[scatter_grid, [self.violin_figure, user_input_block]])
 
         self.update_factor()
         self.update_gene()
@@ -144,24 +139,24 @@ class SingleCellViz:
     def get_umi(self, feature):
         return self.ad.obs_vector(feature)
 
-    def create_categorical_obsm_figure(self, attr):
-        fig = figure(title="UMAP", tools=self.tools)
+    def create_categorical_obsm_figure(self, attr, with_legend=False):
+        fig = figure(title="UMAP", tools=self.tools, inner_height=600 if with_legend else 300, aspect_ratio=1 if with_legend else 1.5)
         fig.toolbar.logo = None
         fig.xaxis.axis_label = f"{attr}1"
         fig.yaxis.axis_label = f"{attr}2"
         fig.select(BoxSelectTool).select_every_mousemove = False
         fig.select(LassoSelectTool).select_every_mousemove = False
-        fig.add_layout(self.categorical_legend, "right")
+        if with_legend:
+            fig.add_layout(self.categorical_legend, "below")
 
-
-
+        cmap = factor_cmap(attr,
+                    self.color_palette,
+                    sorted(self.ad.obs[self.categorical_variable_select.value].unique().tolist()))
         scatter = fig.circle(f"{attr}1", f"{attr}2",
-                             size=3,
+                             size=5,
                              source=self.data_source,
                              line_color=None,
-                             fill_color={'field': self.categorical_variable_select.value,
-                                         'transform': self.category_to_colormap[
-                                             self.categorical_variable_select.value]},
+                             fill_color=cmap,
                              selection_color="orange",
                              alpha=0.6,
                              nonselection_alpha=0.1,
@@ -169,8 +164,8 @@ class SingleCellViz:
 
         return fig, scatter
 
-    def create_scalar_obsm_figure(self, attr):
-        fig = figure(title="UMAP", tools=self.tools)
+    def create_scalar_obsm_figure(self, attr, with_legend=False):
+        fig = figure(title="UMAP", tools=self.tools, inner_height=600 if with_legend else 300, aspect_ratio=1 if with_legend else 1.5)
         fig.toolbar.logo = None
         fig.xaxis.axis_label = f"{attr}1"
         fig.yaxis.axis_label = f"{attr}2"
@@ -178,20 +173,20 @@ class SingleCellViz:
         fig.select(LassoSelectTool).select_every_mousemove = False
 
         scatter = fig.scatter(f"{attr}1", f"{attr}2",
-                             size=3,
-                             source=self.data_source,
-                             color=self.mapper,
-                             selection_color="orange",
-                             alpha=0.6,
-                             nonselection_alpha=0.1,
-                             selection_alpha=0.4)
+                              size=5,
+                              source=self.data_source,
+                              color=self.mapper,
+                              selection_color="orange",
+                              alpha=0.6,
+                              nonselection_alpha=0.1,
+                              selection_alpha=0.4)
 
         fig.add_layout(self.color_bar, 'right')
 
         return fig, scatter
 
     def create_violin_plot(self):
-        fig = figure()
+        fig = figure(height=300, aspect_ratio=1.5)
         patches = fig.patches(xs='xs',
                               ys='ys',
                               alpha=0.6,
@@ -217,23 +212,25 @@ class SingleCellViz:
         self.categorical_legend.items = []
         attr = self.categorical_variable_select.value
         unique_categories = self.ad.obs[attr].unique().to_list()
-        renderers = [x[1] for x in self.categorical_scatters.values()]
+        renderer = list(self.categorical_scatters.values())[-1][1]
 
         for idx, cat in enumerate(sorted(unique_categories)):
             self.categorical_legend.items.append(
                 LegendItem(label=str(cat),
-                           renderers=renderers,
+                           renderers=[renderer],
                            index=idx)
             )
 
     def update_factor(self):
         attr = self.categorical_variable_select.value
-
-        for _, (_, scatter) in self.categorical_scatters.items():
-            scatter.glyph.fill_color = {'field': attr, 'transform': self.category_to_colormap[attr]}
-
         self.update_legend()
+        cmap = factor_cmap(attr,
+                    self.color_palette,
+                    sorted(self.ad.obs[self.categorical_variable_select.value].unique().tolist()))
+        for _, (_, scatter) in self.categorical_scatters.items():
+            scatter.glyph.fill_color = cmap
         self.update_violin()
+        self.update_legend()
 
     def update_gene(self):
         gene_symbol = self.gene_symbol_input.value.strip()
@@ -263,7 +260,7 @@ class SingleCellViz:
         else:
             categorical_array = self.selected_points
         # update axis
-        unique_categories = sorted(categorical_array.unique())
+        unique_categories = sorted(categorical_array.unique().to_list())
         x_range = (np.arange(0, len(unique_categories)) * 3).tolist()
         ## update data
         color = []
@@ -301,7 +298,7 @@ class SingleCellViz:
         categorical_vars = {}
         for k in self.ad.obs:
             if self.ad.obs[k].dtype.name == 'category':
-                factors = self.ad.obs[k].unique().to_list()
+                factors = sorted(self.ad.obs[k].unique().to_list())
                 categorical_vars[k] = CategoricalColorMapper(
                     factors=factors,
                     palette=self.color_palette[:len(factors)])
@@ -318,5 +315,6 @@ def main():
     viz = SingleCellViz(ad)
     curdoc().add_root(viz.layout)
     curdoc().title = "scBokeh"
+
 
 main()
