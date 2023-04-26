@@ -41,7 +41,7 @@ class SingleCellViz:
         self.categorical_legend = Legend(items=[], ncols=2, location="bottom_right")
         self.gene_symbol_input = AutocompleteInput(
             completions=self.ad.var_names.tolist(),
-            title="Enter Gene Name (e.g. HES4 ):", value="HES4")
+            title="Enter Gene Name (e.g. CD53):", value="CD53")
 
         self.mapper = linear_cmap(
             field_name='expression',
@@ -107,6 +107,7 @@ class SingleCellViz:
         def on_select_change(attr, old, new):
             if len(new) == 0:
                 self.selected_points = None
+                self.update_violin()
                 return
 
             self.selected_points = pd.Series(
@@ -258,12 +259,13 @@ class SingleCellViz:
         gene_symbol = self.gene_symbol_input.value.strip()
         umis = self.get_umi(gene_symbol)
 
-        if self.selected_points is None:
+        if self.selected_points is None or len(self.selected_points) == 0:
             categorical_array = self.ad.obs[self.categorical_variable_select.value]
         else:
             categorical_array = self.selected_points
+
         # update axis
-        unique_categories = sorted(categorical_array.unique().to_list())
+        unique_categories = sorted(categorical_array.unique())
         x_range = (np.arange(0, len(unique_categories)) * 3).tolist()
         ## update data
         color = []
