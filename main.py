@@ -88,8 +88,8 @@ class SingleCellViz:
         for idx, attr in enumerate(obsm_keys):
             categorical_fig, categorical_scatter = self.create_categorical_obsm_figure(
                 attr,
-                with_legend=idx == len(obsm_keys) - 1)
-            scalar_fig, scalar_scatter = self.create_scalar_obsm_figure(attr, with_legend=idx == len(obsm_keys) - 1)
+                with_legend=False)
+            scalar_fig, scalar_scatter = self.create_scalar_obsm_figure(attr, with_legend=False)
 
             self.categorical_scatters[attr] = (categorical_fig, categorical_scatter)
             self.scalar_scatters[attr] = (scalar_fig, scalar_scatter)
