@@ -1,284 +1,376 @@
-####
-# Visualize Single Cell data
-# @author: Zhuoqing Fang
-# @email: maxzqfang@stanford.edu
-# @version: 0.1
-# @time: 2019-12-21
-#####
-from functools import lru_cache
+import logging
 from os.path import dirname, join
+
+import anndata
+import colorcet as cc
 import numpy as np
 import pandas as pd
-import scanpy as sc 
-import colorcet as cc 
-from scipy.stats.kde import gaussian_kde
-from bokeh.io import curdoc, show
-from bokeh.layouts import row, column
-from bokeh.models import ColumnDataSource, ColorBar, LinearColorMapper
-from bokeh.models import FixedTicker, PrintfTickFormatter
-from bokeh.models.glyphs import Patches
-from bokeh.models.widgets import Select, TextInput, Dropdown, AutocompleteInput, Div
+import scanpy as sc
+from bokeh.io import curdoc
+from bokeh.layouts import row, column, layout, gridplot
+from bokeh.models import BoxSelectTool, LassoSelectTool
+from bokeh.models import CategoricalColorMapper
+from bokeh.models import ColorBar
+from bokeh.core.property.vectorization import Field
+from bokeh.models import ColumnDataSource, Select, Legend, LegendItem
+from bokeh.models import FixedTicker
+from bokeh.models.widgets import AutocompleteInput, Div
 from bokeh.plotting import figure
-from bokeh.palettes import Category10, Spectral6
-from bokeh.transform import factor_cmap, factor_mark, linear_cmap, jitter
-from bokeh.themes import built_in_themes
-
-
+from bokeh.transform import linear_cmap
+from scipy.stats.kde import gaussian_kde
+from bokeh.core.properties import field, value
 
 DATA_DIR = dirname(__file__)
 
-@lru_cache()
-def load_h5ad():
-    fname = join(DATA_DIR, "ARPKD.PAGA.intergrated.C123.final.20200108.h5ad")
-    #fname = join(DATA_DIR, "old.test.h5ad")
-    return sc.read_h5ad(fname)
-
-@lru_cache()
-def get_umi(anndat, features):
-    #umi = anndat[:, features].X.tolist()
-    umi = anndat.obs_vector(features)
-    return umi
-
-## Catogorical colors
-
-# https://graphicdesign.stackexchange.com/questions/3682/where-can-i-find-a-large-palette-set-of-contrasting-colors-for-coloring-many-d
-# update 1
-# orig reference http://epub.wu.ac.at/1692/1/document.pdf
-zeileis_28 = [
-    "#023fa5", "#7d87b9", "#bec1d4", "#d6bcc0", "#bb7784", "#8e063b", "#4a6fe3",
-    "#8595e1", "#b5bbe3", "#e6afb9", "#e07b91", "#d33f6a", "#11c638", "#8dd593",
-    "#c6dec7", "#ead3c6", "#f0b98d", "#ef9708", "#0fcfc0", "#9cded6", "#d5eae7",
-    "#f3e1eb", "#f6c4e1", "#f79cd4",
-    '#7f7f7f', "#c7c7c7", "#1CE6FF", "#336600",]  # these last ones were added
- 
-# load data
-anndat = load_h5ad() 
-#pca = anndat.obsm['X_pca']
-pca = anndat.obsm['X_draw_graph_fa']
-tsne = anndat.obsm['X_tsne']
-umap = anndat.obsm['X_umap']
-
-# set up widgets
-#stats = PreText(text='', width=500)
-symbol = AutocompleteInput(completions=anndat.var_names.tolist(), 
-                           title="Enter Gene Name (e.g. POU5F1 ):", value="AFP")
-select = Select(title="Legend:", value="stage_group", options=["clusters","stage","stage_group","donor","Donor","group","res.0.6"])#options=anndat.obs_keys())
-# message box
-message = Div(text="""Input Gene Name:\n Legend Option: """, width=200, height=100)
-
-## setup data
-dd = select.value
-umis = get_umi(anndat, symbol.value)
-source = ColumnDataSource(data=dict(tSNE1=tsne[:,0].tolist(), 
-                                    tSNE2=tsne[:,1].tolist(), 
-                                    color=[0]*tsne.shape[0],
-                                    umis=[0]*tsne.shape[0],
-                                    UMAP1=umap[:,0].tolist(), 
-                                    UMAP2=umap[:,1].tolist(),
-                                    FA1=pca[:,0].tolist(),
-                                    FA2=pca[:,1].tolist(),))
-                                    #PC3=pca[:,2].tolist(),))
-source_vln = ColumnDataSource(data=dict(xs=[],ys=[], xj=[], yj=[], color=[]))
-## setup figures
-tools = 'reset,pan,wheel_zoom,box_select,save'
-# color_palette= godsnot_102
-color_palette = cc.b_glasbey_bw_minc_20
-###
-catogories = sorted(anndat.obs[dd].unique().tolist())
-palette = color_palette[:len(catogories)]
-low, high = 0, 1
-## transforms
-fcmap = factor_cmap('color', palette=palette, factors=[str(c) for c in catogories])
-mapper = linear_cmap(field_name='umis', palette="Viridis256",
-                     low=low, high=high)
-color_bar = ColorBar(color_mapper=mapper['transform'],  
-                     width=10, 
-                     major_label_text_font_size="10pt",
-                     location=(0, 0))
-
-#figures
-t1 = figure(plot_width=500, plot_height=500, title="t-SNE", tools=tools)
-t1.toolbar.logo = None
-t1.xaxis.axis_label = "tSNE1"
-t1.yaxis.axis_label = "tSNE2"
-
-#
-t2 = figure(plot_width=550, plot_height=500, tools=tools)
-t2.toolbar.logo = None
-t2.xaxis.axis_label = "tSNE1"
-t2.yaxis.axis_label = "tSNE2"
-
-u1 = figure(plot_width=500, plot_height=500, title="UMAP", tools=tools)
-u1.toolbar.logo = None
-u1.xaxis.axis_label = "UMAP1"
-u1.yaxis.axis_label = "UMAP2"
-
-u2 = figure(plot_width=550, plot_height=500, tools=tools)
-u2.toolbar.logo = None
-u2.xaxis.axis_label = "UMAP1"
-u2.yaxis.axis_label = "UMAP2"
-
-## trajectory
-p1 = figure(plot_width=500, plot_height=500, title="Trajectory Inference", tools=tools)
-p1.toolbar.logo = None
-p1.xaxis.axis_label = "FA1"
-p1.yaxis.axis_label = "FA2"
-
-p2 = figure(plot_width=550, plot_height=500, tools=tools)
-p2.toolbar.logo = None
-p2.xaxis.axis_label = "FA1"
-p2.yaxis.axis_label = "FA2"
-
-########### clustering plots ##################
-## tSNE
-t1.circle('tSNE1', 'tSNE2', size=3, source=source, legend_field="color", color= fcmap,
-            selection_color="orange", alpha=0.6, nonselection_alpha=0.1, selection_alpha=0.4)
-## UMAP
-u1.circle('UMAP1', 'UMAP2', size=3, source=source, legend_field="color", color= fcmap,
-            selection_color="orange", alpha=0.6, nonselection_alpha=0.1, selection_alpha=0.4)
-## PCA
-p1.circle('FA1', 'FA2', size=3, source=source, legend_field="color", color= fcmap,
-            selection_color="orange", alpha=0.6, nonselection_alpha=0.1, selection_alpha=0.4)   
-
-###### gene expression plots ##################
-# tSNE
-t2.scatter('tSNE1', 'tSNE2', size=3, source=source, 
-            fill_color=mapper,
-            line_color=None, selection_color="orange", alpha=0.6, 
-            nonselection_alpha=0.1, selection_alpha=0.4)
-t2.add_layout(color_bar, 'right')
-
-# UMAP
-u2.scatter('UMAP1', 'UMAP2', size=3, source=source, 
-            fill_color=mapper,
-            line_color=None, selection_color="orange", alpha=0.6, 
-            nonselection_alpha=0.1, selection_alpha=0.4)
-u2.add_layout(color_bar, 'right') 
-#PCA
-p2.scatter('FA1', 'FA2', size=3, source=source, 
-            fill_color=mapper,
-            line_color=None, selection_color="orange", 
-            alpha=0.6, nonselection_alpha=0.1, selection_alpha=0.4)
-p2.add_layout(color_bar, 'right')
+logger = logging.getLogger(__file__)
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler())
 
 
-## voilinplot
-volin = figure(plot_width=1000, plot_height=500, 
-               tools = 'reset, pan,wheel_zoom, save')
-volin.patches(xs='xs', ys='ys', alpha=0.6, fill_color='color', line_color='black', source=source_vln)
-#volin.circle(x=jitter('xj', 0.4), y='yj', size=2, color='black', alpha=0.4, source=source_vln)
+class SingleCellViz:
+    def __init__(
+        self,
+        ad: anndata.AnnData,
+        color_palette=cc.b_glasbey_bw_minc_20,
+        obsm_keys=("X_umap", "X_pca"),
+        tools="pan,wheel_zoom,box_zoom,reset,lasso_select,box_select",
+    ):
+        self.tools = tools
+        self.ad = ad
+        self.n_cells = ad.shape[0]
+        self.n_genes = ad.shape[1]
+        self.color_palette = color_palette
+        self.categorical_legend = Legend(items=[], ncols=2, location="bottom_right")
+        self.gene_symbol_input = AutocompleteInput(
+            completions=self.ad.var_names.tolist(),
+            title="Enter Gene Name (e.g. CD53):",
+            value="CD53",
+        )
 
-volin.toolbar.logo = None
-volin.yaxis.axis_label = "Expression"
+        self.mapper = linear_cmap(
+            field_name="expression", palette="Viridis256", low=0, high=1
+        )
 
-volin.outline_line_color = None
-volin.background_fill_color = "#efefef"
-volin.xaxis.major_label_orientation = np.pi/4
-volin.xgrid.grid_line_color = None
-volin.ygrid.grid_line_color = "#dddddd"
-volin.axis.minor_tick_line_color = None
-volin.axis.major_tick_line_color = None
-volin.axis.axis_line_color = None
+        self.color_bar = ColorBar(
+            color_mapper=self.mapper["transform"],
+            width=10,
+            major_label_text_font_size="10pt",
+            location=(0, 0),
+        )
 
-def volin_change(gene, catogory, umis, bins=1000, cut=2):
-    # update axis
-    cats = sorted(catogory.unique())
-    x_range = (np.arange(0, len(cats)) * 3).tolist()
-    ## update data
-    color = color_palette[:len(cats)]
-    xs = []
-    ys =  []
-    xj = []
-    yj = []
+        self.category_to_colormap = self.get_categorical_variables_and_colormaps()
 
-    for i, cat in zip(x_range, cats):
-        umi = umis[catogory == cat]
-        kde = gaussian_kde(umi) 
-        # same default paramter same as seaborn.violinplot
-        bw_used = kde.factor * umi.std(ddof=1) * cut
-        support_min = umi.min() - bw_used 
-        support_max = umi.max() + bw_used
-        kde_support = np.linspace(support_min, support_max, bins)
+        if len(self.category_to_colormap) > 0:
+            self.categorical_variable_select = Select(
+                title="Legend:",
+                value=list(self.category_to_colormap.keys())[0],
+                options=list(self.category_to_colormap.keys()),
+            )
+        else:
+            self.categorical_variable_select = None
 
-        # generate y and x values
-        yy = np.concatenate([kde_support, kde_support[::-1]])  # note: think about how bokeh patches work 
-        x = kde(kde_support)  ### you may change this if the violin not fit in
-        x /= x.max() # scale the relative area under the kde curve, resulting max density will be 1
-        x2 = -x
-        xx = np.concatenate([x, x2[::-1]]) + i
-        xs.append(xx)
-        ys.append(yy)
-        #xj.append([i]*len(umi))
-        #yj.append(umi)
-      
-    source_vln.data = dict(xs=xs, ys=ys, color=color)
-    #source_vln.data = dict(xs=xs, ys=ys, color=color, xj=xj, yj=yj)
+        data_source_dict = {
+            "expression": [0] * self.n_cells,
+        }
 
-    volin.xaxis.ticker = FixedTicker(ticks= x_range)
-    volin.xaxis.major_label_overrides = {k: str(v) for k, v in zip(x_range, cats)}
-    volin.title.text = gene
+        for attr in obsm_keys:
+            data_source_dict[f"{attr}1"] = self.ad.obsm[attr][:, 0].tolist()
+            data_source_dict[f"{attr}2"] = self.ad.obsm[attr][:, 1].tolist()
 
-# set up callbacks
-def gene_change():
-    ## update text input and select attribute
-    gene = symbol.value.strip()
-    dd = select.value
+        for k in self.category_to_colormap:
+            data_source_dict[k] = self.ad.obs[k].to_list()
 
-    message.text = "Input Gene Name: {g} \nLegend Option: {cat}".format(g=gene,cat=dd)
-    # select gene expression value
-    umis = get_umi(anndat, gene)
-    ## update existing tranform
-    vmin, vmax = np.percentile(umis, [2, 98])
-    mapper['transform'].low= vmin
-    mapper['transform'].high= vmax
-    ## update title
-    p2.title.text = gene 
-    u2.title.text = gene
-    t2.title.text = gene   
-    ## update source data
-    source.data.update(umis=umis,)
-    
-    # update volin
-    clusters = anndat.obs[dd]
-    volin_change(gene, clusters, umis, bins=1000)
+        self.selected_points = None
+
+        self.data_source = ColumnDataSource(data_source_dict)
+
+        self.fig_with_cat_legend = None
+        self.scalar_scatters = {}
+        self.categorical_scatters = {}
+        for idx, attr in enumerate(obsm_keys):
+            categorical_fig, categorical_scatter = self.create_categorical_obsm_figure(
+                attr, with_legend=False
+            )
+            scalar_fig, scalar_scatter = self.create_scalar_obsm_figure(
+                attr, with_legend=False
+            )
+            scalar_fig.x_range = categorical_fig.x_range
+            scalar_fig.y_range = categorical_fig.y_range
+            if idx > 0:
+                categorical_fig.x_range = self.categorical_scatters[obsm_keys[0]][
+                    0
+                ].x_range
+                categorical_fig.y_range = self.categorical_scatters[obsm_keys[0]][
+                    0
+                ].y_range
+                scalar_fig.x_range = self.categorical_scatters[obsm_keys[0]][0].x_range
+                scalar_fig.y_range = self.categorical_scatters[obsm_keys[0]][0].y_range
+
+            self.categorical_scatters[attr] = (categorical_fig, categorical_scatter)
+            self.scalar_scatters[attr] = (scalar_fig, scalar_scatter)
+
+        self.violin_plot_source = ColumnDataSource(
+            data=dict(xs=[], ys=[], xj=[], yj=[], color=[])
+        )
+
+        self.obsm_figures = {}
+
+        self.selected_umis = []
+
+        self.violin_figure, self.violin_patches = self.create_violin_plot()
+
+        def on_select_change(attr, old, new):
+            if len(new) == 0:
+                self.selected_points = None
+                self.update_violin()
+                return
+
+            self.selected_points = pd.Series(
+                [x in self.ad.obs.index[new] for x in self.ad.obs.index],
+                index=self.ad.obs.index,
+            ).map({True: "Selected", False: "Not Selected"})
+            self.update_violin()
+
+        self.data_source.selected.on_change("indices", on_select_change)
+
+        def on_gene_symbol_change(attr, old, new):
+            self.update_gene()
+
+        def on_categorical_variable_change(attr, old, new):
+            self.update_factor()
+
+        ### input on change
+        self.gene_symbol_input.on_change("value", on_gene_symbol_change)
+        self.categorical_variable_select.on_change(
+            "value", on_categorical_variable_change
+        )
+
+        user_input_block = column(
+            self.gene_symbol_input, self.categorical_variable_select
+        )
+
+        scatters = [
+            [self.categorical_scatters[attr][0], self.scalar_scatters[attr][0]]
+            for attr in obsm_keys
+        ]
+
+        scatter_grid = gridplot(scatters)
+
+        self.layout = layout(
+            children=[scatter_grid, [self.violin_figure, user_input_block]]
+        )
+
+        self.update_factor()
+        self.update_gene()
+
+    def get_umi(self, feature):
+        return self.ad.obs_vector(feature)
+
+    def create_categorical_obsm_figure(self, attr, with_legend=False):
+        fig = figure(
+            title="UMAP",
+            tools=self.tools,
+            inner_height=600 if with_legend else 300,
+            aspect_ratio=1 if with_legend else 1.5,
+        )
+        fig.toolbar.logo = None
+        fig.xaxis.axis_label = f"{attr}1"
+        fig.yaxis.axis_label = f"{attr}2"
+        fig.select(BoxSelectTool).select_every_mousemove = False
+        fig.select(LassoSelectTool).select_every_mousemove = False
+        if with_legend:
+            self.fig_with_cat_legend = fig
+            fig.add_layout(self.categorical_legend, "below")
+
+        scatter = fig.scatter(
+            f"{attr}1",
+            f"{attr}2",
+            size=5,
+            source=self.data_source,
+            line_color=None,
+            color={
+                "field": self.categorical_variable_select.value,
+                "transform": self.category_to_colormap[
+                    self.categorical_variable_select.value
+                ],
+            },
+            selection_color="orange",
+            alpha=0.6,
+            nonselection_alpha=0.1,
+            selection_alpha=0.4,
+        )
+
+        return fig, scatter
+
+    def create_scalar_obsm_figure(self, attr, with_legend=False):
+        fig = figure(
+            title="UMAP",
+            tools=self.tools,
+            inner_height=600 if with_legend else 300,
+            aspect_ratio=1 if with_legend else 1.5,
+        )
+        fig.toolbar.logo = None
+        fig.xaxis.axis_label = f"{attr}1"
+        fig.yaxis.axis_label = f"{attr}2"
+        fig.select(BoxSelectTool).select_every_mousemove = False
+        fig.select(LassoSelectTool).select_every_mousemove = False
+
+        scatter = fig.scatter(
+            f"{attr}1",
+            f"{attr}2",
+            size=5,
+            source=self.data_source,
+            color=self.mapper,
+            selection_color="orange",
+            alpha=0.6,
+            nonselection_alpha=0.1,
+            selection_alpha=0.4,
+        )
+
+        fig.add_layout(self.color_bar, "right")
+
+        return fig, scatter
+
+    def create_violin_plot(self):
+        fig = figure(height=300, aspect_ratio=1.5)
+        patches = fig.patches(
+            xs="xs",
+            ys="ys",
+            alpha=0.6,
+            fill_color="color",
+            line_color="black",
+            source=self.violin_plot_source,
+        )
+
+        fig.toolbar.logo = None
+        fig.yaxis.axis_label = "Expression"
+
+        fig.outline_line_color = None
+        fig.background_fill_color = "#efefef"
+        fig.xaxis.major_label_orientation = np.pi / 4
+        fig.xgrid.grid_line_color = None
+        fig.ygrid.grid_line_color = "#dddddd"
+        fig.axis.minor_tick_line_color = None
+        fig.axis.major_tick_line_color = None
+        fig.axis.axis_line_color = None
+
+        return fig, patches
+
+    def update_legend(self):
+        self.categorical_legend.items = []
+        attr = self.categorical_variable_select.value
+        unique_categories = self.ad.obs[attr].unique().to_list()
+        renderer = list(self.categorical_scatters.values())[-1][1]
+
+        for idx, cat in enumerate(sorted(unique_categories)):
+            self.categorical_legend.items.append(
+                LegendItem(label=value(cat), renderers=[renderer], index=idx)
+            )
+
+    def update_factor(self):
+        attr = self.categorical_variable_select.value
+
+        for _, (_, scatter) in self.categorical_scatters.items():
+            scatter.glyph.fill_color = {
+                "field": attr,
+                "transform": self.category_to_colormap[attr],
+            }
+
+        self.update_legend()
+        self.update_violin()
+
+    def update_gene(self):
+        gene_symbol = self.gene_symbol_input.value.strip()
+
+        # select gene expression value
+        umis = self.get_umi(gene_symbol)
+        ## update existing tranform
+        vmin, vmax = np.percentile(umis, [2, 98])
+        self.mapper["transform"].low = vmin
+        self.mapper["transform"].high = vmax
+        ## update title
+        for _, (fig, _) in self.categorical_scatters.items():
+            fig.title.text = gene_symbol
+        for _, (fig, _) in self.scalar_scatters.items():
+            fig.title.text = gene_symbol
+        ## update source data
+        self.data_source.data.update(
+            expression=umis,
+        )
+
+        self.update_violin()
+
+    def update_violin(self, cut=2, bins=1000):
+        gene_symbol = self.gene_symbol_input.value.strip()
+        umis = self.get_umi(gene_symbol)
+
+        if self.selected_points is None or len(self.selected_points) == 0:
+            categorical_array = self.ad.obs[self.categorical_variable_select.value]
+        else:
+            categorical_array = self.selected_points
+
+        # update axis
+        unique_categories = sorted(categorical_array.unique())
+        x_range = (np.arange(0, len(unique_categories)) * 3).tolist()
+        ## update data
+        color = []
+        xs = []
+        ys = []
+
+        for idx, (i, category_value) in enumerate(zip(x_range, unique_categories)):
+            umi = umis[categorical_array == category_value]
+            try:
+                kde = gaussian_kde(umi)
+            except (np.linalg.LinAlgError, ValueError):
+                continue
+            color.append(self.color_palette[: len(unique_categories)][idx])
+            # same default paramter same as seaborn.violinplot
+            bw_used = kde.factor * umi.std(ddof=1) * cut
+            support_min = umi.min() - bw_used
+            support_max = umi.max() + bw_used
+            kde_support = np.linspace(support_min, support_max, bins)
+
+            # generate y and x values
+            yy = np.concatenate(
+                [kde_support, kde_support[::-1]]
+            )  # note: think about how bokeh patches work
+            x = kde(kde_support)  ### you may change this if the violin not fit in
+            x /= (
+                x.max()
+            )  # scale the relative area under the kde curve, resulting max density will be 1
+            x2 = -x
+            xx = np.concatenate([x, x2[::-1]]) + i
+            xs.append(xx)
+            ys.append(yy)
+
+        self.violin_plot_source.data = dict(xs=xs, ys=ys, color=color)
+        self.violin_figure.xaxis.ticker = FixedTicker(ticks=x_range)
+        self.violin_figure.xaxis.major_label_overrides = {
+            k: str(v) for k, v in zip(x_range, unique_categories)
+        }
+        self.violin_figure.title.text = gene_symbol
+
+    def get_categorical_variables_and_colormaps(self):
+        categorical_vars = {}
+        for k in self.ad.obs:
+            if self.ad.obs[k].dtype.name == "category":
+                factors = sorted(self.ad.obs[k].unique().to_list())
+                categorical_vars[k] = CategoricalColorMapper(
+                    factors=factors, palette=self.color_palette[: len(factors)]
+                )
+
+        return categorical_vars
 
 
-# set up callbacks
-def factor_change():
-    ## update text input and select attribute
-    gene = symbol.value.strip()
-    dd = select.value
- 
-    message.text = "Input Gene Name: {g} \nLegend Option: {cat}".format(g=gene,cat=dd)
-    # select gene expression value
-    umis = get_umi(anndat, gene) 
-    # update factor color 
-    clusters = anndat.obs[dd]
-    cats = sorted(clusters.unique().tolist())
-    fcmap['transform'].factors= [ str(c) for c in cats] 
-    fcmap['transform'].palette=color_palette[:len(cats)]
-    ## update source data
-    source.data.update(color=clusters.astype(str).tolist())
-    ## update violin
-    volin_change(gene, clusters, umis, bins=1000)
+def main():
+    logger.info("Running scBokeh")
+    fname = join(DATA_DIR, "pbmc68k_reduced.h5ad")
 
-### input on change
-symbol.on_change('value', lambda attr, old, new: gene_change())
-select.on_change('value', lambda attr, old, new: factor_change())
+    logger.info("Reading {}".format(fname))
+    ad = sc.read_h5ad(fname)
+    viz = SingleCellViz(ad)
+    curdoc().add_root(viz.layout)
+    curdoc().title = "scBokeh"
 
-# set up layout
-sb = column(symbol, select, message)
 
-series_t = row(t1, t2, sb)
-series_u = row(u1, u2, volin)
-series_p = row(p1, p2, )
-layout = column(series_t, series_u, series_p,)
-
-# initialize
-#update()
-gene_change()
-factor_change()
-
-curdoc().add_root(layout)
-#curdoc.theme = 'dark_minimal'
-curdoc().title = "ARPKD"
+main()
